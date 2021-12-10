@@ -1,0 +1,99 @@
+---
+title: "dday"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+```{r include=FALSE}
+while(!require(RJDBC)){install.packages("RJDBC")}
+while(!require(tidyverse)){install.packages("tidyverse") }
+while(!require(lubridate)){install.packages("lubridate")}
+while(!require(shinythemes)){install.packages("shinythemes")}
+
+
+
+###If this is the first time using this on a computer
+###Add zip folder to R folder in the C: and run the following 
+###you shouldn't have to run these everytime, but it wouldn't hurt if you did
+if(file.exists("C:/R/Required_library")){
+} else {
+  unzip("Required_library.zip",overwrite = FALSE,exdir = "C:/R")
+}
+.jinit()
+rJava::.jaddClassPath("C:\\R\\Required_library\\ojdbc8.jar") #R uses backwards 
+
+
+#Settup connection####
+
+
+jdbcDriver =JDBC("oracle.jdbc.OracleDriver",classPath="C:/R/Required_library/ojdbc8.jar")
+host <- "db-cwtoto.dfg.alaska.local"
+port <- "1521"
+svc <- "DFGCWTOTOP.500040564.us1.internal"
+protocol <-"jdbc:oracle:thin:"
+url <- paste0(protocol,"@",host,":",port,"/",svc)
+jdbcConnection =dbConnect(jdbcDriver, url, user="adu_reporter",password="gunghayfatchoy")
+
+#### set up query ####
+region <- "1"
+adu_reading.release_authoritative <- "1"
+adu_reading.release_date<- ">to_date('11/25/2021','mm/dd/yyyy')"
+gnoqry<-paste0("select
+adu_sample.region_code as region,
+to_char(adu_sample.date_sampled, 'mm/dd/yyyy') as sample_date,
+adu_specimen.field_species_code as field_species,
+adu_specimen.lab_species_code as lab_species,
+adu_reading.sample_id as sample_id,
+to_number(adu_reading.specimen_id) as specimen_number,
+adu_reading.age as age,
+adu_reading.readability_code as readability,
+user_status.reader_code as age_reader_code
+from adu_specimen
+inner join adu_sample on adu_specimen.year=adu_sample.year and adu_specimen.sample_id=adu_sample.sample_id
+inner join adu_reading on adu_specimen.year=adu_reading.year and adu_specimen.sample_id=adu_reading.sample_id and adu_specimen.specimen_id=adu_reading.specimen_id
+inner join user_status on adu_reading.userid=user_status.userid
+where adu_sample.region_code='1' and adu_reading.release_authoritative='1' and adu_reading.release_date>to_date('11/24/2021','mm/dd/yyyy') 
+order by adu_reading.sample_id, cast(adu_reading.specimen_id as numeric)") 
+
+
+dday_data <- RJDBC::dbGetQuery(jdbcConnection, gnoqry)
+dday_data[is.na(dday_data)] <- ""  
+
+
+discon <- dbDisconnect(jdbcConnection)
+```
+
+```{r include=FALSE}
+library(knitr)
+library(kableExtra)
+rowselect <- (dday_data %>% 
+  mutate(row_number= 1:n()) %>% 
+  filter(READABILITY >5) %>%             ### SET CRITERIA HERE
+    dplyr::select(row_number))$row_number
+
+rowselect2 <- (dday_data %>% 
+                 mutate(row_number= 1:n()) %>% 
+                 filter(SPECIMEN_NUMBER == min(as.numeric(SPECIMEN_NUMBER))) %>%             ### SET CRITERIA HERE
+                 dplyr::select(row_number))$row_number
+```
+```{r}
+dday_data %>%
+  knitr::kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  kable_paper() %>% 
+  kableExtra::kable_styling(full_width = F) %>%
+  row_spec(rowselect, bold = T, color = "black", background = "#fff194") %>% 
+  row_spec(rowselect2, bold = T, color ="black", background = "#08FF18")
+  
+```
+
+```{r }
+
+summary <- dday_data %>% dplyr::select("SAMPLE_ID", "FIELD_SPECIES") %>% group_by(SAMPLE_ID,FIELD_SPECIES)  %>% summarise(grandtotal=length(FIELD_SPECIES))
+summary %>% knitr::kable() %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+  kable_paper() %>% 
+  kableExtra::kable_styling(full_width = F)
+```
